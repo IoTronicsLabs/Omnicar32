@@ -22,6 +22,7 @@ const int zonaMuerta = 80;              // Zona muerta ampliada para mejor contr
 const int velocidadMinima = 80;         // Velocidad mínima para que el motor se mueva
 const int velocidadMaxima = 255;        // Velocidad máxima
 const float tasaAceleracion = 0.15;     // Incremento gradual (0.1 = más suave, 0.3 = más rápido)
+const float tasaFrenado = 0.35;         // Frenado más rápido que aceleración
 const float factorCurva = 0.4;          // Reducción de velocidad en curvas (0.3-0.6 recomendado)
 const float filtroSuavizado = 0.25;     // Filtro para entrada del joystick (0.1-0.3)
 
@@ -119,23 +120,25 @@ void establecerDireccionMotor(bool izquierdo, int velocidad) {
 }
 
 void actualizarVelocidadesGradual() {
-  // Interpolar suavemente hacia las velocidades objetivo
+  // Determinar tasa de cambio (frenado más rápido que aceleración)
+  float tasaIzq = (abs(velocidadIzqObjetivo) < abs(velocidadIzqActual)) ? tasaFrenado : tasaAceleracion;
+  float tasaDer = (abs(velocidadDerObjetivo) < abs(velocidadDerActual)) ? tasaFrenado : tasaAceleracion;
   
   // Motor izquierdo
   if (velocidadIzqActual < velocidadIzqObjetivo) {
-    velocidadIzqActual += max(1, (int)((velocidadIzqObjetivo - velocidadIzqActual) * tasaAceleracion));
+    velocidadIzqActual += max(1, (int)((velocidadIzqObjetivo - velocidadIzqActual) * tasaIzq));
     if (velocidadIzqActual > velocidadIzqObjetivo) velocidadIzqActual = velocidadIzqObjetivo;
   } else if (velocidadIzqActual > velocidadIzqObjetivo) {
-    velocidadIzqActual -= max(1, (int)((velocidadIzqActual - velocidadIzqObjetivo) * tasaAceleracion));
+    velocidadIzqActual -= max(1, (int)((velocidadIzqActual - velocidadIzqObjetivo) * tasaIzq));
     if (velocidadIzqActual < velocidadIzqObjetivo) velocidadIzqActual = velocidadIzqObjetivo;
   }
   
   // Motor derecho
   if (velocidadDerActual < velocidadDerObjetivo) {
-    velocidadDerActual += max(1, (int)((velocidadDerObjetivo - velocidadDerActual) * tasaAceleracion));
+    velocidadDerActual += max(1, (int)((velocidadDerObjetivo - velocidadDerActual) * tasaDer));
     if (velocidadDerActual > velocidadDerObjetivo) velocidadDerActual = velocidadDerObjetivo;
   } else if (velocidadDerActual > velocidadDerObjetivo) {
-    velocidadDerActual -= max(1, (int)((velocidadDerActual - velocidadDerObjetivo) * tasaAceleracion));
+    velocidadDerActual -= max(1, (int)((velocidadDerActual - velocidadDerObjetivo) * tasaDer));
     if (velocidadDerActual < velocidadDerObjetivo) velocidadDerActual = velocidadDerObjetivo;
   }
   
@@ -153,9 +156,15 @@ void procesarMando(ControllerPtr ctl) {
   int joystickX = ctl->axisX();  // -511 a 512 (izquierda/derecha)
   int joystickY = ctl->axisY();  // -511 a 512 (arriba/abajo)
   
-  // Aplicar filtro de suavizado exponencial
-  joystickXFiltrado = joystickXFiltrado * (1 - filtroSuavizado) + joystickX * filtroSuavizado;
-  joystickYFiltrado = joystickYFiltrado * (1 - filtroSuavizado) + joystickY * filtroSuavizado;
+  // Aplicar filtro de suavizado exponencial (solo cuando hay movimiento)
+  if (abs(joystickX) > zonaMuerta || abs(joystickY) > zonaMuerta) {
+    joystickXFiltrado = joystickXFiltrado * (1 - filtroSuavizado) + joystickX * filtroSuavizado;
+    joystickYFiltrado = joystickYFiltrado * (1 - filtroSuavizado) + joystickY * filtroSuavizado;
+  } else {
+    // Resetear filtros cuando el joystick está en reposo
+    joystickXFiltrado = 0;
+    joystickYFiltrado = 0;
+  }
   
   // Normalizar valores del joystick a rango -1.0 a 1.0
   float ejeY = -joystickYFiltrado / 511.0;  // Negativo para que arriba sea positivo
@@ -277,7 +286,7 @@ void setup() {
   
   Serial.println("\n=== SISTEMA INICIADO - CONTROL SUAVE ACTIVADO ===");
   Serial.println("Configuración:");
-  Serial.printf("- Aceleración: %.2f\n", tasaAceleracion);
+  Serial.printf("- Aceleración: %.2f | Frenado: %.2f\n", tasaAceleracion, tasaFrenado);
   Serial.printf("- Factor curva: %.2f\n", factorCurva);
   Serial.printf("- Zona muerta: %d\n", zonaMuerta);
   Serial.printf("- Vel. mín/máx: %d/%d\n", velocidadMinima, velocidadMaxima);
